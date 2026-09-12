@@ -6,6 +6,16 @@ CREATE TABLE companies (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+CREATE TABLE schedules (id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, company_id BIGINT UNSIGNED NOT NULL, name VARCHAR(120) NOT NULL, type ENUM('fixed','flexible','12x36','custom') DEFAULT 'fixed', work_start TIME NOT NULL, break_start TIME NULL, break_end TIME NULL, work_end TIME NOT NULL, weekly_minutes INT DEFAULT 2640, tolerance_minutes INT DEFAULT 10, night_start TIME DEFAULT '22:00:00', night_end TIME DEFAULT '05:00:00', active TINYINT(1) DEFAULT 1, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, CONSTRAINT fk_schedules_company FOREIGN KEY(company_id) REFERENCES companies(id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE adjustments (id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, company_id BIGINT UNSIGNED NOT NULL, employee_id BIGINT UNSIGNED NOT NULL, work_date DATE NOT NULL, kind ENUM('missing_punch','delay','absence','medical','manual_punch','compensation') NOT NULL, status ENUM('pending','approved','rejected') DEFAULT 'pending', adjusted_value TEXT NULL, reason TEXT NOT NULL, created_by BIGINT UNSIGNED NOT NULL, approved_by BIGINT UNSIGNED NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, approved_at DATETIME NULL, INDEX idx_adjustment_company_status(company_id,status)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE company_settings (company_id BIGINT UNSIGNED PRIMARY KEY, daily_tolerance_minutes INT DEFAULT 10, overtime_weekday_percent DECIMAL(5,2) DEFAULT 50, overtime_holiday_percent DECIMAL(5,2) DEFAULT 100, night_additional_percent DECIMAL(5,2) DEFAULT 20, night_hour_minutes INT DEFAULT 52, closing_day TINYINT UNSIGNED DEFAULT 25, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE devices (id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, company_id BIGINT UNSIGNED NOT NULL, name VARCHAR(120) NOT NULL, manufacturer VARCHAR(100) NULL, model VARCHAR(100) NULL, serial_number VARCHAR(100) NULL, ip_address VARCHAR(45) NULL, status ENUM('online','offline','disabled') DEFAULT 'offline', last_sync_at DATETIME NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE period_closures (id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, company_id BIGINT UNSIGNED NOT NULL, starts_on DATE NOT NULL, ends_on DATE NOT NULL, status ENUM('open','closed') DEFAULT 'open', closed_by BIGINT UNSIGNED NULL, closed_at DATETIME NULL, UNIQUE KEY uq_period(company_id,starts_on,ends_on)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 CREATE TABLE users (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   company_id BIGINT UNSIGNED NOT NULL,
@@ -60,4 +70,3 @@ CREATE TABLE audit_logs (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   INDEX idx_audit_company_date (company_id, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
