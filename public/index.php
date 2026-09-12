@@ -138,7 +138,16 @@ if ($path === 'reports/payroll.csv') {
     $from=$_GET['from']??date('Y-m-01');$to=$_GET['to']??date('Y-m-d');audit('export','payroll',null,['from'=>$from,'to'=>$to]);ReportExporter::payrollCsv(user()['company_id'],$from,$to);
 }
 
-$allowed = ['dashboard','employees','punches','treatment','reports','schedules','companies','audit','settings'];
+if ($path === 'reports/aej.txt') {
+    $from=$_GET['from']??date('Y-m-01');$to=$_GET['to']??date('Y-m-d');header('Content-Type: text/plain; charset=UTF-8');header('Content-Disposition: attachment; filename="AEJ-'.$from.'-'.$to.'.txt"');echo "AEJ;1;$from;$to\r\n";
+    $q=db()->prepare('SELECT e.registration,e.cpf,p.punched_at,p.nsr FROM punches p JOIN employees e ON e.id=p.employee_id WHERE p.company_id=? AND DATE(p.punched_at) BETWEEN ? AND ? ORDER BY p.punched_at');$q->execute([user()['company_id'],$from,$to]);foreach($q as $r)echo implode(';',[$r['nsr'],$r['registration'],preg_replace('/\D/','',$r['cpf']??''),$r['punched_at']])."\r\n";audit('export','aej',null,['from'=>$from,'to'=>$to]);exit;
+}
+
+if ($path === 'users/new' && $method === 'POST') {
+    check_csrf();require_role(['admin']);$stmt=db()->prepare('INSERT INTO users(company_id,name,email,password_hash,role) VALUES(?,?,?,?,?)');$stmt->execute([user()['company_id'],trim($_POST['name']),strtolower(trim($_POST['email'])),password_hash($_POST['password'],PASSWORD_DEFAULT),$_POST['role']]);audit('create','user',(string)db()->lastInsertId());$_SESSION['flash']='Usuário cadastrado.';redirect('users');
+}
+
+$allowed = ['dashboard','employees','punches','treatment','reports','schedules','companies','users','audit','settings'];
 $page = $path === '' ? 'dashboard' : $path;
 if (!in_array($page, $allowed, true)) { http_response_code(404); $page = '404'; }
 require dirname(__DIR__) . '/views/app.php';
