@@ -22,6 +22,8 @@ CREATE TABLE import_batches (id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, comp
 
 CREATE TABLE daily_calculations (id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, company_id BIGINT UNSIGNED NOT NULL, employee_id BIGINT UNSIGNED NOT NULL, work_date DATE NOT NULL, worked_minutes INT DEFAULT 0, expected_minutes INT DEFAULT 0, overtime_minutes INT DEFAULT 0, delay_minutes INT DEFAULT 0, night_minutes INT DEFAULT 0, issues JSON NULL, processed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, UNIQUE KEY uq_daily_calculation(company_id,employee_id,work_date)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+CREATE TABLE timecard_acceptances (id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, company_id BIGINT UNSIGNED NOT NULL, employee_id BIGINT UNSIGNED NOT NULL, starts_on DATE NOT NULL, ends_on DATE NOT NULL, accepted_name VARCHAR(150) NOT NULL, acceptance_hash CHAR(64) NOT NULL UNIQUE, ip_address VARCHAR(45) NULL, accepted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, INDEX idx_acceptance_employee(employee_id,starts_on,ends_on)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 CREATE TABLE users (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   company_id BIGINT UNSIGNED NOT NULL,
