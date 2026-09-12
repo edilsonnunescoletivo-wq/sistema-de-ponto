@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+require_once __DIR__ . '/TimeCalculator.php';
+
 session_start([
     'cookie_httponly' => true,
     'cookie_samesite' => 'Lax',
@@ -58,7 +60,12 @@ function initialize_sqlite(PDO $pdo): void
     CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, company_id INTEGER NOT NULL, name TEXT NOT NULL, email TEXT UNIQUE NOT NULL, password_hash TEXT NOT NULL, role TEXT DEFAULT 'admin', active INTEGER DEFAULT 1, created_at TEXT DEFAULT CURRENT_TIMESTAMP);
     CREATE TABLE IF NOT EXISTS employees (id INTEGER PRIMARY KEY AUTOINCREMENT, company_id INTEGER NOT NULL, registration TEXT NOT NULL, name TEXT NOT NULL, cpf TEXT, department TEXT NOT NULL, job_title TEXT NOT NULL, schedule_name TEXT DEFAULT '44h semanais', status TEXT DEFAULT 'active', created_at TEXT DEFAULT CURRENT_TIMESTAMP, UNIQUE(company_id, registration));
     CREATE TABLE IF NOT EXISTS punches (id INTEGER PRIMARY KEY AUTOINCREMENT, company_id INTEGER NOT NULL, employee_id INTEGER NOT NULL, punched_at TEXT NOT NULL, source TEXT DEFAULT 'agent', nsr TEXT, original_hash TEXT UNIQUE NOT NULL, created_at TEXT DEFAULT CURRENT_TIMESTAMP);
-    CREATE TABLE IF NOT EXISTS audit_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, company_id INTEGER NOT NULL, user_id INTEGER, action TEXT NOT NULL, entity_type TEXT NOT NULL, entity_id TEXT, details TEXT, ip_address TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP);"
+    CREATE TABLE IF NOT EXISTS audit_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, company_id INTEGER NOT NULL, user_id INTEGER, action TEXT NOT NULL, entity_type TEXT NOT NULL, entity_id TEXT, details TEXT, ip_address TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP);
+    CREATE TABLE IF NOT EXISTS schedules (id INTEGER PRIMARY KEY AUTOINCREMENT, company_id INTEGER NOT NULL, name TEXT NOT NULL, type TEXT DEFAULT 'fixed', work_start TEXT NOT NULL, break_start TEXT, break_end TEXT, work_end TEXT NOT NULL, weekly_minutes INTEGER DEFAULT 2640, tolerance_minutes INTEGER DEFAULT 10, night_start TEXT DEFAULT '22:00', night_end TEXT DEFAULT '05:00', active INTEGER DEFAULT 1, created_at TEXT DEFAULT CURRENT_TIMESTAMP);
+    CREATE TABLE IF NOT EXISTS adjustments (id INTEGER PRIMARY KEY AUTOINCREMENT, company_id INTEGER NOT NULL, employee_id INTEGER NOT NULL, work_date TEXT NOT NULL, kind TEXT NOT NULL, status TEXT DEFAULT 'pending', adjusted_value TEXT, reason TEXT NOT NULL, created_by INTEGER NOT NULL, approved_by INTEGER, created_at TEXT DEFAULT CURRENT_TIMESTAMP, approved_at TEXT);
+    CREATE TABLE IF NOT EXISTS company_settings (company_id INTEGER PRIMARY KEY, daily_tolerance_minutes INTEGER DEFAULT 10, overtime_weekday_percent REAL DEFAULT 50, overtime_holiday_percent REAL DEFAULT 100, night_additional_percent REAL DEFAULT 20, night_hour_minutes INTEGER DEFAULT 52, closing_day INTEGER DEFAULT 25, updated_at TEXT DEFAULT CURRENT_TIMESTAMP);
+    CREATE TABLE IF NOT EXISTS devices (id INTEGER PRIMARY KEY AUTOINCREMENT, company_id INTEGER NOT NULL, name TEXT NOT NULL, manufacturer TEXT, model TEXT, serial_number TEXT, ip_address TEXT, status TEXT DEFAULT 'offline', last_sync_at TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP);
+    CREATE TABLE IF NOT EXISTS period_closures (id INTEGER PRIMARY KEY AUTOINCREMENT, company_id INTEGER NOT NULL, starts_on TEXT NOT NULL, ends_on TEXT NOT NULL, status TEXT DEFAULT 'open', closed_by INTEGER, closed_at TEXT, UNIQUE(company_id,starts_on,ends_on));"
     );
     if ((int)$pdo->query('SELECT COUNT(*) FROM companies')->fetchColumn() === 0) {
         $pdo->beginTransaction();
@@ -70,6 +77,11 @@ function initialize_sqlite(PDO $pdo): void
         (1,'0002','Carlos Lima','111.111.111-11','Operacional','Agente de portaria','12×36 • 07:00–19:00','active'),
         (1,'0003','Mariana Alves','222.222.222-22','Serviços Gerais','Auxiliar de serviços gerais','Seg–Sáb • 07:00–15:20','leave'),
         (1,'0004','João Santos','333.333.333-33','Manutenção','Auxiliar de manutenção','Seg–Sex • 08:00–17:00','active')");
+        $pdo->exec("INSERT INTO schedules (company_id,name,type,work_start,break_start,break_end,work_end,weekly_minutes,tolerance_minutes) VALUES
+        (1,'Administrativo','fixed','08:00','12:00','13:00','17:00',2400,10),
+        (1,'Portaria 12×36','12x36','07:00','12:00','13:00','19:00',2640,10),
+        (1,'Serviços gerais','fixed','07:00','11:00','12:00','15:20',2640,10)");
+        $pdo->exec("INSERT INTO company_settings (company_id) VALUES (1)");
         $today = date('Y-m-d');
         $punch = $pdo->prepare('INSERT INTO punches (company_id,employee_id,punched_at,source,nsr,original_hash) VALUES (1,?,?,?,?,?)');
         foreach ([[1,'07:58:12'],[1,'12:01:03'],[1,'13:00:45'],[1,'17:06:20'],[2,'06:54:10'],[2,'12:02:31'],[4,'08:17:05']] as $i => [$employee,$time]) {
@@ -94,4 +106,3 @@ function audit(string $action, string $entity, ?string $id = null, array $detail
     $stmt = db()->prepare('INSERT INTO audit_logs (company_id,user_id,action,entity_type,entity_id,details,ip_address) VALUES (?,?,?,?,?,?,?)');
     $stmt->execute([user()['company_id'],user()['id'],$action,$entity,$id,json_encode($details, JSON_UNESCAPED_UNICODE),$_SERVER['REMOTE_ADDR'] ?? null]);
 }
-
