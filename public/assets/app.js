@@ -5,4 +5,6 @@ document.querySelector('#employeeSearch')?.addEventListener('input',event=>{
   const term=event.target.value.toLocaleLowerCase('pt-BR');
   document.querySelectorAll('#employeeRows tr').forEach(row=>row.hidden=!row.textContent.toLocaleLowerCase('pt-BR').includes(term));
 });
-
+document.querySelectorAll('button').forEach(button=>{
+  if(button.textContent.trim()==='Processar período') button.addEventListener('click',()=>document.querySelector('#processPeriodForm')?.requestSubmit());
+});
