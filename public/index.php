@@ -43,6 +43,52 @@ if ($path === 'login') {
 if ($path === 'logout') { session_destroy(); redirect('login'); }
 require_auth();
 
+if ($path === 'employees/update' && $method === 'POST') {
+    check_csrf(); require_role(['admin','rh']);
+    $id=(int)($_POST['employee_id']??0);
+    $status=in_array($_POST['status']??'', ['active','inactive','vacation','leave'], true)?$_POST['status']:'active';
+    $stmt=db()->prepare('UPDATE employees SET name=?,cpf=?,department=?,job_title=?,status=? WHERE id=? AND company_id=?');
+    $stmt->execute([trim($_POST['name']??''),trim($_POST['cpf']??''),trim($_POST['department']??''),trim($_POST['job_title']??''),$status,$id,user()['company_id']]);
+    audit('update','employee',(string)$id,['status'=>$status]);
+    $_SESSION['flash']=$stmt->rowCount()?'Colaborador atualizado.':'Nenhuma alteração realizada.'; redirect('employees');
+}
+
+if ($path === 'punches/manual' && $method === 'POST') {
+    check_csrf(); require_role(['admin','rh']);
+    $employee=(int)($_POST['employee_id']??0); $punchedAt=str_replace('T',' ',trim($_POST['punched_at']??''));
+    $valid=db()->prepare('SELECT COUNT(*) FROM employees WHERE id=? AND company_id=?');$valid->execute([$employee,user()['company_id']]);
+    if(!$valid->fetchColumn()||!strtotime($punchedAt)){http_response_code(422);exit('Colaborador ou horário inválido.');}
+    if(period_is_closed(user()['company_id'],substr($punchedAt,0,10))){$_SESSION['flash']='O período está fechado e não permite marcação manual.';redirect('punches');}
+    $reason=trim($_POST['reason']??''); if($reason===''){http_response_code(422);exit('Informe a justificativa.');}
+    $hash=hash('sha256',user()['company_id'].'|'.$employee.'|'.$punchedAt.'|manual|'.$reason);
+    try{db()->prepare('INSERT INTO punches(company_id,employee_id,punched_at,source,nsr,original_hash) VALUES(?,?,?,?,?,?)')->execute([user()['company_id'],$employee,$punchedAt,'manual',null,$hash]);}
+    catch(PDOException $e){$_SESSION['flash']='Essa marcação manual já foi registrada.';redirect('punches');}
+    audit('create','manual_punch',(string)db()->lastInsertId(),['employee_id'=>$employee,'punched_at'=>$punchedAt,'reason'=>$reason]);
+    $_SESSION['flash']='Marcação manual registrada com justificativa.'; redirect('punches');
+}
+
+if ($path === 'company/update' && $method === 'POST') {
+    check_csrf(); require_role(['admin']);
+    $timezone=in_array($_POST['timezone']??'',timezone_identifiers_list(),true)?$_POST['timezone']:'America/Bahia';
+    $stmt=db()->prepare('UPDATE companies SET name=?,document=?,timezone=? WHERE id=?');
+    $stmt->execute([trim($_POST['name']??''),trim($_POST['document']??''),$timezone,user()['company_id']]);
+    audit('update','company',(string)user()['company_id']); $_SESSION['flash']='Dados da empresa atualizados.'; redirect('companies');
+}
+
+if ($path === 'users/toggle' && $method === 'POST') {
+    check_csrf(); require_role(['admin']); $id=(int)($_POST['user_id']??0);
+    if($id===(int)user()['id']){$_SESSION['flash']='Você não pode desativar o próprio acesso.';redirect('users');}
+    $stmt=db()->prepare('UPDATE users SET active=CASE WHEN active=1 THEN 0 ELSE 1 END WHERE id=? AND company_id=?');$stmt->execute([$id,user()['company_id']]);
+    audit('toggle','user',(string)$id);$_SESSION['flash']='Status do usuário atualizado.';redirect('users');
+}
+
+if ($path === 'users/password' && $method === 'POST') {
+    check_csrf(); require_role(['admin']);$id=(int)($_POST['user_id']??0);$password=$_POST['password']??'';
+    if(strlen($password)<8){http_response_code(422);exit('A senha deve ter ao menos 8 caracteres.');}
+    $stmt=db()->prepare('UPDATE users SET password_hash=? WHERE id=? AND company_id=?');$stmt->execute([password_hash($password,PASSWORD_DEFAULT),$id,user()['company_id']]);
+    audit('password_reset','user',(string)$id);$_SESSION['flash']='Senha redefinida com segurança.';redirect('users');
+}
+
 if ($path === 'employees/new' && $method === 'POST') {
     check_csrf();
     $stmt = db()->prepare('INSERT INTO employees (company_id,registration,name,cpf,department,job_title,schedule_name,status) VALUES (?,?,?,?,?,?,?,?)');
@@ -77,11 +123,16 @@ if ($path === 'employees/assign-schedule' && $method === 'POST') {
 if ($path === 'treatment/approve' && $method === 'POST') {
     check_csrf();
     require_role(['admin','rh']);
-    $date=db()->prepare('SELECT work_date FROM adjustments WHERE id=? AND company_id=?');$date->execute([(int)$_POST['adjustment_id'],user()['company_id']]);$workDate=$date->fetchColumn();
+    $date=db()->prepare('SELECT * FROM adjustments WHERE id=? AND company_id=?');$date->execute([(int)$_POST['adjustment_id'],user()['company_id']]);$adjustment=$date->fetch();$workDate=$adjustment['work_date']??null;
     if(!$workDate||period_is_closed(user()['company_id'],$workDate)){$_SESSION['flash']='O tratamento pertence a um período fechado.';redirect('treatment');}
     $status=($_POST['decision']??'approve')==='reject'?'rejected':'approved';
     $stmt=db()->prepare("UPDATE adjustments SET status=?,approved_by=?,approved_at=CURRENT_TIMESTAMP WHERE id=? AND company_id=? AND status='pending'");
     $stmt->execute([$status,user()['id'],(int)$_POST['adjustment_id'],user()['company_id']]);
+    if($stmt->rowCount()&&$status==='approved'&&in_array($adjustment['kind'],['missing_punch','manual_punch'],true)&&preg_match('/^\\d{2}:\\d{2}/',(string)$adjustment['adjusted_value'])){
+        $punchedAt=$workDate.' '.substr($adjustment['adjusted_value'],0,5).':00';$hash=hash('sha256',user()['company_id'].'|'.$adjustment['employee_id'].'|'.$punchedAt.'|adjustment|'.$adjustment['id']);
+        $sql=env('DB_DRIVER','sqlite')==='mysql'?'INSERT IGNORE INTO punches(company_id,employee_id,punched_at,source,original_hash) VALUES(?,?,?,?,?)':'INSERT OR IGNORE INTO punches(company_id,employee_id,punched_at,source,original_hash) VALUES(?,?,?,?,?)';
+        db()->prepare($sql)->execute([user()['company_id'],$adjustment['employee_id'],$punchedAt,'manual',$hash]);
+    }
     audit($status,'adjustment',(string)$_POST['adjustment_id']);$_SESSION['flash']=$status==='approved'?'Tratamento aprovado.':'Tratamento rejeitado.';redirect('treatment');
 }
 
@@ -158,7 +209,9 @@ if ($path === 'timecard') {
     $employeeId=(int)($_GET['employee_id']??0);$from=$_GET['from']??date('Y-m-01');$to=$_GET['to']??date('Y-m-d');
     $q=db()->prepare('SELECT * FROM employees WHERE id=? AND company_id=?');$q->execute([$employeeId,user()['company_id']]);$timecardEmployee=$q->fetch();if(!$timecardEmployee){http_response_code(404);exit('Colaborador não encontrado.');}
     $companyQuery=db()->prepare('SELECT * FROM companies WHERE id=?');$companyQuery->execute([user()['company_id']]);$company=$companyQuery->fetch();
-    $q=db()->prepare('SELECT * FROM daily_calculations WHERE employee_id=? AND work_date BETWEEN ? AND ? ORDER BY work_date');$q->execute([$employeeId,$from,$to]);$timecardDays=$q->fetchAll();require dirname(__DIR__).'/views/timecard.php';exit;
+    $q=db()->prepare('SELECT * FROM daily_calculations WHERE company_id=? AND employee_id=? AND work_date BETWEEN ? AND ? ORDER BY work_date');$q->execute([user()['company_id'],$employeeId,$from,$to]);$timecardDays=$q->fetchAll();
+    $q=db()->prepare('SELECT * FROM timecard_acceptances WHERE company_id=? AND employee_id=? AND starts_on=? AND ends_on=? ORDER BY accepted_at DESC LIMIT 1');$q->execute([user()['company_id'],$employeeId,$from,$to]);$timecardAcceptance=$q->fetch();
+    require dirname(__DIR__).'/views/timecard.php';exit;
 }
 
 $allowed = ['dashboard','employees','punches','treatment','reports','schedules','companies','users','audit','settings'];
