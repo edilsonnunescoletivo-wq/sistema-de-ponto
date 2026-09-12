@@ -76,9 +76,13 @@ if ($path === 'employees/assign-schedule' && $method === 'POST') {
 
 if ($path === 'treatment/approve' && $method === 'POST') {
     check_csrf();
-    $stmt=db()->prepare("UPDATE adjustments SET status='approved',approved_by=?,approved_at=CURRENT_TIMESTAMP WHERE id=? AND company_id=? AND status='pending'");
-    $stmt->execute([user()['id'],(int)$_POST['adjustment_id'],user()['company_id']]);
-    audit('approve','adjustment',(string)$_POST['adjustment_id']);$_SESSION['flash']='Tratamento aprovado.';redirect('treatment');
+    require_role(['admin','rh']);
+    $date=db()->prepare('SELECT work_date FROM adjustments WHERE id=? AND company_id=?');$date->execute([(int)$_POST['adjustment_id'],user()['company_id']]);$workDate=$date->fetchColumn();
+    if(!$workDate||period_is_closed(user()['company_id'],$workDate)){$_SESSION['flash']='O tratamento pertence a um período fechado.';redirect('treatment');}
+    $status=($_POST['decision']??'approve')==='reject'?'rejected':'approved';
+    $stmt=db()->prepare("UPDATE adjustments SET status=?,approved_by=?,approved_at=CURRENT_TIMESTAMP WHERE id=? AND company_id=? AND status='pending'");
+    $stmt->execute([$status,user()['id'],(int)$_POST['adjustment_id'],user()['company_id']]);
+    audit($status,'adjustment',(string)$_POST['adjustment_id']);$_SESSION['flash']=$status==='approved'?'Tratamento aprovado.':'Tratamento rejeitado.';redirect('treatment');
 }
 
 if ($path === 'settings/save' && $method === 'POST') {
@@ -93,6 +97,7 @@ if ($path === 'settings/save' && $method === 'POST') {
 
 if ($path === 'treatment/save' && $method === 'POST') {
     check_csrf();
+    if(period_is_closed(user()['company_id'],$_POST['work_date'])){$_SESSION['flash']='Este período está fechado e não aceita novos tratamentos.';redirect('treatment');}
     $stmt=db()->prepare('INSERT INTO adjustments (company_id,employee_id,work_date,kind,status,adjusted_value,reason,created_by) VALUES (?,?,?,?,?,?,?,?)');
     $stmt->execute([user()['company_id'],(int)$_POST['employee_id'],$_POST['work_date'],$_POST['kind'],'pending',trim($_POST['adjusted_value']??''),trim($_POST['reason']),user()['id']]);
     audit('create','adjustment',(string)db()->lastInsertId(),['kind'=>$_POST['kind']]);
@@ -112,6 +117,25 @@ if ($path === 'treatment/process' && $method === 'POST') {
     if($from>$to){$_SESSION['flash']='O período informado é inválido.';redirect('treatment');}
     $result=(new PeriodProcessor())->process(user()['company_id'],$from,$to,user()['id']);audit('process','period',null,['from'=>$from,'to'=>$to]+$result);
     $_SESSION['flash']="Processamento concluído: {$result['days']} dias analisados e {$result['issues']} ocorrências encontradas.";redirect('treatment');
+}
+
+if ($path === 'period/close' && $method === 'POST') {
+    check_csrf();$from=$_POST['from'];$to=$_POST['to'];
+    require_role(['admin','rh']);
+    $pending=db()->prepare("SELECT COUNT(*) FROM adjustments WHERE company_id=? AND status='pending' AND work_date BETWEEN ? AND ?");$pending->execute([user()['company_id'],$from,$to]);
+    if($pending->fetchColumn()){$_SESSION['flash']='Existem tratamentos pendentes. Aprove ou rejeite antes de fechar.';redirect('reports');}
+    $sql=env('DB_DRIVER','sqlite')==='mysql'?'INSERT INTO period_closures(company_id,starts_on,ends_on,status,closed_by,closed_at) VALUES(?,?,?,\'closed\',?,CURRENT_TIMESTAMP) ON DUPLICATE KEY UPDATE status=\'closed\',closed_by=VALUES(closed_by),closed_at=CURRENT_TIMESTAMP':'INSERT INTO period_closures(company_id,starts_on,ends_on,status,closed_by,closed_at) VALUES(?,?,?,\'closed\',?,CURRENT_TIMESTAMP) ON CONFLICT(company_id,starts_on,ends_on) DO UPDATE SET status=\'closed\',closed_by=excluded.closed_by,closed_at=CURRENT_TIMESTAMP';
+    db()->prepare($sql)->execute([user()['company_id'],$from,$to,user()['id']]);audit('close','period',null,['from'=>$from,'to'=>$to]);$_SESSION['flash']='Período fechado com sucesso.';redirect('reports');
+}
+
+if ($path === 'period/reopen' && $method === 'POST') {
+    check_csrf();require_role(['admin']);
+    $stmt=db()->prepare("UPDATE period_closures SET status='open',closed_by=NULL,closed_at=NULL WHERE company_id=? AND starts_on=? AND ends_on=?");$stmt->execute([user()['company_id'],$_POST['from'],$_POST['to']]);
+    audit('reopen','period',null,['from'=>$_POST['from'],'to'=>$_POST['to']]);$_SESSION['flash']='Período reaberto pelo administrador.';redirect('reports');
+}
+
+if ($path === 'reports/payroll.csv') {
+    $from=$_GET['from']??date('Y-m-01');$to=$_GET['to']??date('Y-m-d');audit('export','payroll',null,['from'=>$from,'to'=>$to]);ReportExporter::payrollCsv(user()['company_id'],$from,$to);
 }
 
 $allowed = ['dashboard','employees','punches','treatment','reports','schedules','companies','audit','settings'];
