@@ -60,6 +60,27 @@ if ($path === 'schedules/new' && $method === 'POST') {
     $_SESSION['flash']='Jornada cadastrada com sucesso.'; redirect('schedules');
 }
 
+if ($path === 'employees/assign-schedule' && $method === 'POST') {
+    check_csrf();
+    $employee=(int)$_POST['employee_id']; $schedule=(int)$_POST['schedule_id'];
+    $valid=db()->prepare('SELECT COUNT(*) FROM employees e,schedules s WHERE e.id=? AND s.id=? AND e.company_id=? AND s.company_id=?');
+    $valid->execute([$employee,$schedule,user()['company_id'],user()['company_id']]);
+    if(!$valid->fetchColumn()){http_response_code(422);exit('Colaborador ou jornada inválida.');}
+    db()->prepare('UPDATE employee_schedule_assignments SET ends_on=? WHERE employee_id=? AND ends_on IS NULL')->execute([date('Y-m-d',strtotime('-1 day')),$employee]);
+    db()->prepare('INSERT INTO employee_schedule_assignments (employee_id,schedule_id,starts_on) VALUES (?,?,?)')->execute([$employee,$schedule,$_POST['starts_on']]);
+    $name=db()->prepare('SELECT name FROM schedules WHERE id=?');$name->execute([$schedule]);
+    db()->prepare('UPDATE employees SET schedule_name=? WHERE id=?')->execute([$name->fetchColumn(),$employee]);
+    audit('assign','schedule',(string)$schedule,['employee_id'=>$employee]);
+    $_SESSION['flash']='Jornada atribuída ao colaborador.';redirect('employees');
+}
+
+if ($path === 'treatment/approve' && $method === 'POST') {
+    check_csrf();
+    $stmt=db()->prepare("UPDATE adjustments SET status='approved',approved_by=?,approved_at=CURRENT_TIMESTAMP WHERE id=? AND company_id=? AND status='pending'");
+    $stmt->execute([user()['id'],(int)$_POST['adjustment_id'],user()['company_id']]);
+    audit('approve','adjustment',(string)$_POST['adjustment_id']);$_SESSION['flash']='Tratamento aprovado.';redirect('treatment');
+}
+
 if ($path === 'settings/save' && $method === 'POST') {
     check_csrf();
     $values=[(int)$_POST['daily_tolerance_minutes'],(float)$_POST['overtime_weekday_percent'],(float)$_POST['overtime_holiday_percent'],(float)$_POST['night_additional_percent'],(int)$_POST['night_hour_minutes'],(int)$_POST['closing_day'],user()['company_id']];
