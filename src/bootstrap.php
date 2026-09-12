@@ -4,6 +4,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/TimeCalculator.php';
 require_once __DIR__ . '/AfdImporter.php';
 require_once __DIR__ . '/PeriodProcessor.php';
+require_once __DIR__ . '/ReportExporter.php';
 
 session_start([
     'cookie_httponly' => true,
@@ -102,6 +103,7 @@ function url(string $path = ''): string { return '/' . ltrim($path, '/'); }
 function redirect(string $path): never { header('Location: ' . url($path)); exit; }
 function user(): ?array { return $_SESSION['user'] ?? null; }
 function require_auth(): void { if (!user()) redirect('login'); }
+function require_role(array $roles):void{if(!user()||!in_array(user()['role'],$roles,true)){http_response_code(403);exit('Acesso não autorizado.');}}
 function csrf_token(): string { return $_SESSION['csrf'] ??= bin2hex(random_bytes(24)); }
 function check_csrf(): void { if (!hash_equals($_SESSION['csrf'] ?? '', $_POST['_token'] ?? '')) { http_response_code(419); exit('Sessão expirada. Atualize a página.'); } }
 
@@ -111,3 +113,6 @@ function audit(string $action, string $entity, ?string $id = null, array $detail
     $stmt = db()->prepare('INSERT INTO audit_logs (company_id,user_id,action,entity_type,entity_id,details,ip_address) VALUES (?,?,?,?,?,?,?)');
     $stmt->execute([user()['company_id'],user()['id'],$action,$entity,$id,json_encode($details, JSON_UNESCAPED_UNICODE),$_SERVER['REMOTE_ADDR'] ?? null]);
 }
+
+function period_is_closed(int $companyId,string $date):bool
+{$s=db()->prepare("SELECT COUNT(*) FROM period_closures WHERE company_id=? AND status='closed' AND ? BETWEEN starts_on AND ends_on");$s->execute([$companyId,$date]);return(bool)$s->fetchColumn();}
