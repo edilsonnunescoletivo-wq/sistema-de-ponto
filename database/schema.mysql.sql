@@ -18,6 +18,10 @@ CREATE TABLE devices (id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, company_id 
 
 CREATE TABLE period_closures (id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, company_id BIGINT UNSIGNED NOT NULL, starts_on DATE NOT NULL, ends_on DATE NOT NULL, status ENUM('open','closed') DEFAULT 'open', closed_by BIGINT UNSIGNED NULL, closed_at DATETIME NULL, UNIQUE KEY uq_period(company_id,starts_on,ends_on)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+CREATE TABLE import_batches (id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, company_id BIGINT UNSIGNED NOT NULL, file_name VARCHAR(255) NOT NULL, file_hash CHAR(64) NOT NULL, status ENUM('processing','completed','failed') DEFAULT 'processing', total_records INT DEFAULT 0, imported_records INT DEFAULT 0, rejected_records INT DEFAULT 0, created_by BIGINT UNSIGNED NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, completed_at DATETIME NULL, INDEX idx_import_company(company_id,created_at)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE daily_calculations (id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, company_id BIGINT UNSIGNED NOT NULL, employee_id BIGINT UNSIGNED NOT NULL, work_date DATE NOT NULL, worked_minutes INT DEFAULT 0, expected_minutes INT DEFAULT 0, overtime_minutes INT DEFAULT 0, delay_minutes INT DEFAULT 0, night_minutes INT DEFAULT 0, issues JSON NULL, processed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, UNIQUE KEY uq_daily_calculation(company_id,employee_id,work_date)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 CREATE TABLE users (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   company_id BIGINT UNSIGNED NOT NULL,
