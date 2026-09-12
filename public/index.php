@@ -99,6 +99,21 @@ if ($path === 'treatment/save' && $method === 'POST') {
     $_SESSION['flash']='Tratamento registrado e enviado para aprovação.'; redirect('treatment');
 }
 
+if ($path === 'punches/import' && $method === 'POST') {
+    check_csrf();
+    if(!isset($_FILES['afd'])||$_FILES['afd']['error']!==UPLOAD_ERR_OK){$_SESSION['flash']='Não foi possível receber o arquivo.';redirect('punches');}
+    try{$result=(new AfdImporter())->import($_FILES['afd']['tmp_name'],user()['company_id'],user()['id']);audit('import','afd',null,$result);$_SESSION['flash']="Importação concluída: {$result['imported']} novas, {$result['duplicates']} duplicadas e {$result['unknown']} não identificadas.";}
+    catch(Throwable $e){$_SESSION['flash']='Falha na importação: '.$e->getMessage();}
+    redirect('punches');
+}
+
+if ($path === 'treatment/process' && $method === 'POST') {
+    check_csrf();$from=$_POST['from']??date('Y-m-01');$to=$_POST['to']??date('Y-m-d');
+    if($from>$to){$_SESSION['flash']='O período informado é inválido.';redirect('treatment');}
+    $result=(new PeriodProcessor())->process(user()['company_id'],$from,$to,user()['id']);audit('process','period',null,['from'=>$from,'to'=>$to]+$result);
+    $_SESSION['flash']="Processamento concluído: {$result['days']} dias analisados e {$result['issues']} ocorrências encontradas.";redirect('treatment');
+}
+
 $allowed = ['dashboard','employees','punches','treatment','reports','schedules','companies','audit','settings'];
 $page = $path === '' ? 'dashboard' : $path;
 if (!in_array($page, $allowed, true)) { http_response_code(404); $page = '404'; }
