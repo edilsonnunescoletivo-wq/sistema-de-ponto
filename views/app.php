@@ -1,0 +1,73 @@
+<?php
+$companyId = user()['company_id'];
+$companyStmt = db()->prepare('SELECT * FROM companies WHERE id = ?'); $companyStmt->execute([$companyId]); $company = $companyStmt->fetch();
+$employeeCount = db()->prepare("SELECT COUNT(*) FROM employees WHERE company_id=? AND status='active'"); $employeeCount->execute([$companyId]);
+$todaySql = env('DB_DRIVER', 'sqlite') === 'mysql'
+    ? 'SELECT COUNT(*) FROM punches WHERE company_id=? AND DATE(punched_at)=CURDATE()'
+    : "SELECT COUNT(*) FROM punches WHERE company_id=? AND date(punched_at)=date('now','localtime')";
+$todayPunches = db()->prepare($todaySql); $todayPunches->execute([$companyId]);
+$employees = db()->prepare('SELECT * FROM employees WHERE company_id=? ORDER BY name'); $employees->execute([$companyId]); $employeeRows = $employees->fetchAll();
+$punches = db()->prepare('SELECT p.*,e.name,e.registration,e.department FROM punches p JOIN employees e ON e.id=p.employee_id WHERE p.company_id=? ORDER BY p.punched_at DESC LIMIT 40'); $punches->execute([$companyId]); $punchRows = $punches->fetchAll();
+$flash = $_SESSION['flash'] ?? null; unset($_SESSION['flash']);
+$titles = ['dashboard'=>'Visão geral','employees'=>'Colaboradores','punches'=>'Marcações','treatment'=>'Tratamento de ponto','reports'=>'Relatórios','schedules'=>'Jornadas e escalas','companies'=>'Empresas','audit'=>'Auditoria','settings'=>'Configurações','404'=>'Página não encontrada'];
+$nav = [['dashboard','grade','Visão geral'],['employees','users','Colaboradores'],['schedules','clock','Jornadas e escalas'],['punches','fingerprint','Marcações'],['treatment','wand','Tratamento'],['reports','file','Relatórios'],['companies','building','Empresas'],['audit','shield','Auditoria'],['settings','settings','Configurações']];
+function icon(string $name): string { $icons=['grade'=>'▦','users'=>'♙','clock'=>'◷','fingerprint'=>'◎','wand'=>'✦','file'=>'▤','building'=>'▥','shield'=>'◇','settings'=>'⚙']; return $icons[$name] ?? '•'; }
+?>
+<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title><?= e($titles[$page]) ?> • Ponto Certo</title><link rel="stylesheet" href="/assets/app.css"><link rel="icon" href="/favicon.svg" type="image/svg+xml"></head>
+<body><div class="app-shell">
+<aside class="sidebar" id="sidebar">
+  <a class="logo" href="/dashboard"><span class="brand-mark small">PC</span><span>Ponto <b>Certo</b></span></a>
+  <div class="company-picker"><small>ORGANIZAÇÃO</small><strong><?= e($company['name']) ?></strong><span><?= e($company['document']) ?></span></div>
+  <nav><?php foreach($nav as [$href,$ico,$label]): ?><a href="/<?= $href ?>" class="<?= $page===$href?'active':'' ?>"><span><?= icon($ico) ?></span><?= $label ?></a><?php endforeach; ?></nav>
+  <div class="sidebar-foot"><div class="avatar">AN</div><div><strong><?= e(user()['name']) ?></strong><span><?= e(strtoupper(user()['role'])) ?></span></div><a href="/logout" title="Sair">↗</a></div>
+</aside>
+<main class="main">
+  <header class="topbar"><button class="menu-button" id="menuButton" aria-label="Abrir menu">☰</button><div><p class="eyebrow">SEXTA-FEIRA, <?= date('d/m/Y') ?></p><h1><?= e($titles[$page]) ?></h1></div><div class="top-actions"><button class="icon-button" aria-label="Notificações">♢<span></span></button><a class="button primary" href="/punches">+ Importar marcações</a></div></header>
+  <section class="content">
+  <?php if ($flash): ?><div class="alert success"><?= e($flash) ?></div><?php endif; ?>
+  <?php if ($page==='dashboard'): ?>
+    <div class="period-bar"><div><span>Período atual</span><strong>01/<?= date('m/Y') ?> — <?= date('d/m/Y') ?></strong></div><button class="button ghost">Alterar período</button></div>
+    <div class="stats">
+      <article class="stat"><span class="stat-icon blue">♙</span><div><small>COLABORADORES ATIVOS</small><strong><?= (int)$employeeCount->fetchColumn() ?></strong><em>Cadastro atualizado</em></div></article>
+      <article class="stat"><span class="stat-icon cyan">◎</span><div><small>MARCAÇÕES HOJE</small><strong><?= (int)$todayPunches->fetchColumn() ?></strong><em>Recebidas pelo agente</em></div></article>
+      <article class="stat"><span class="stat-icon amber">!</span><div><small>INCONSISTÊNCIAS</small><strong>3</strong><em>Precisam de análise</em></div></article>
+      <article class="stat"><span class="stat-icon green">✓</span><div><small>FECHAMENTO</small><strong>78%</strong><em><?= date('m/Y') ?></em></div></article>
+    </div>
+    <div class="dashboard-grid">
+      <article class="panel"><div class="panel-head"><div><h2>Ocorrências que exigem atenção</h2><p>Prioridades do período atual</p></div><a href="/treatment">Ver todas</a></div>
+        <div class="issue"><span class="issue-icon danger">!</span><div><strong>Marcação ímpar</strong><p>Carlos Lima • <?= date('d/m') ?> • falta saída</p></div><span class="badge danger">Pendente</span></div>
+        <div class="issue"><span class="issue-icon warning">◷</span><div><strong>Atraso acima da tolerância</strong><p>João Santos • <?= date('d/m') ?> • 17 minutos</p></div><span class="badge warning">Analisar</span></div>
+        <div class="issue"><span class="issue-icon info">i</span><div><strong>Atestado aguardando aprovação</strong><p>Mariana Alves • 2 dias de afastamento</p></div><span class="badge info">Documento</span></div>
+      </article>
+      <article class="panel"><div class="panel-head"><div><h2>Resumo da jornada</h2><p>Horas apuradas no mês</p></div></div>
+        <div class="hours-total"><span>Horas previstas</span><strong>704h</strong></div>
+        <div class="progress"><i style="width:78%"></i></div>
+        <div class="hours-grid"><div><span>Trabalhadas</span><b>549h 24m</b></div><div><span>Extras</span><b class="positive">+12h 35m</b></div><div><span>Atrasos</span><b class="negative">−3h 10m</b></div><div><span>Banco</span><b>+9h 25m</b></div></div>
+      </article>
+    </div>
+    <article class="panel"><div class="panel-head"><div><h2>Últimas marcações</h2><p>Sincronização em tempo real com o agente comunicador</p></div><span class="live"><i></i> Agente conectado</span></div><?php render_punch_table(array_slice($punchRows,0,6)); ?></article>
+  <?php elseif ($page==='employees'): ?>
+    <div class="page-actions"><div><h2>Equipe cadastrada</h2><p><?= count($employeeRows) ?> colaboradores encontrados</p></div><button class="button primary" data-modal="employeeModal">+ Novo colaborador</button></div>
+    <article class="panel table-panel"><div class="filters"><input id="employeeSearch" placeholder="Pesquisar nome, matrícula ou setor"><select><option>Todos os status</option><option>Ativos</option><option>Afastados</option></select></div><div class="table-wrap"><table><thead><tr><th>Colaborador</th><th>Matrícula</th><th>Setor / cargo</th><th>Jornada</th><th>Status</th></tr></thead><tbody id="employeeRows"><?php foreach($employeeRows as $row): ?><tr><td><strong><?= e($row['name']) ?></strong><small><?= e($row['cpf']) ?></small></td><td><?= e($row['registration']) ?></td><td><?= e($row['department']) ?><small><?= e($row['job_title']) ?></small></td><td><?= e($row['schedule_name']) ?></td><td><span class="badge <?= $row['status']==='active'?'success':'warning' ?>"><?= $row['status']==='active'?'Ativo':'Afastado' ?></span></td></tr><?php endforeach; ?></tbody></table></div></article>
+    <dialog id="employeeModal"><form method="post" action="/employees/new"><div class="modal-head"><div><p class="eyebrow">CADASTRO</p><h2>Novo colaborador</h2></div><button type="button" class="close-modal">×</button></div><input type="hidden" name="_token" value="<?= csrf_token() ?>"><div class="form-grid"><label class="span-2">Nome completo<input name="name" required></label><label>Matrícula<input name="registration" required></label><label>CPF<input name="cpf" placeholder="000.000.000-00"></label><label>Setor<input name="department" required></label><label>Cargo<input name="job_title" required></label><label class="span-2">Jornada<input name="schedule_name" value="Seg–Sex • 08:00–17:00" required></label></div><div class="modal-actions"><button type="button" class="button ghost close-modal">Cancelar</button><button class="button primary">Salvar colaborador</button></div></form></dialog>
+  <?php elseif ($page==='punches'): ?>
+    <div class="page-actions"><div><h2>Marcações recebidas</h2><p>Originais preservados e identificados por hash</p></div><div><button class="button ghost">Importar AFD</button><button class="button primary">+ Incluir justificativa</button></div></div><article class="panel table-panel"><?php render_punch_table($punchRows); ?></article>
+  <?php elseif ($page==='treatment'): ?>
+    <div class="page-actions"><div><h2>Fila de tratamento</h2><p>Analise ocorrências antes do fechamento</p></div><button class="button primary">Processar período</button></div><div class="treatment-layout"><article class="panel issue-list"><button class="selected"><span class="issue-icon danger">!</span><div><strong>Carlos Lima</strong><small><?= date('d/m/Y') ?> • Marcação ímpar</small></div><b>›</b></button><button><span class="issue-icon warning">◷</span><div><strong>João Santos</strong><small><?= date('d/m/Y') ?> • Atraso de 17 min</small></div><b>›</b></button><button><span class="issue-icon info">i</span><div><strong>Mariana Alves</strong><small>Atestado pendente</small></div><b>›</b></button></article><article class="panel treatment-detail"><p class="eyebrow">OCORRÊNCIA SELECIONADA</p><h2>Marcação ímpar</h2><p>Carlos Lima chegou às 06:54 e registrou a saída para intervalo, mas ainda não possui retorno e saída final.</p><div class="timeline"><span><b>06:54</b><small>Entrada</small></span><i></i><span><b>12:02</b><small>Saída</small></span><i class="missing"></i><span class="empty"><b>—</b><small>Retorno</small></span><i class="missing"></i><span class="empty"><b>—</b><small>Saída</small></span></div><label>Tratamento<select><option>Aguardar nova sincronização</option><option>Incluir marcação com justificativa</option><option>Registrar ausência</option></select></label><label>Observação<textarea rows="4" placeholder="Descreva a justificativa e anexe o documento quando aplicável."></textarea></label><div class="modal-actions"><button class="button ghost">Descartar</button><button class="button primary">Salvar tratamento</button></div></article></div>
+  <?php elseif ($page==='reports'): ?>
+    <div class="report-grid"><?php foreach([['Espelho de ponto','Jornada diária, ocorrências e assinatura.'],['Banco de horas','Créditos, débitos e saldo por colaborador.'],['Horas extras','Apuração por percentual e período.'],['Faltas e atrasos','Ocorrências para conferência da folha.'],['Arquivo AEJ','Exportação conforme Portaria nº 671/2021.'],['Auditoria do período','Ajustes, justificativas e responsáveis.']] as [$name,$desc]): ?><article class="report-card"><span>▤</span><div><h2><?= $name ?></h2><p><?= $desc ?></p></div><button class="button ghost">Gerar</button></article><?php endforeach; ?></div>
+  <?php elseif ($page==='schedules'): ?>
+    <div class="page-actions"><div><h2>Modelos de jornada</h2><p>Escalas associadas aos colaboradores</p></div><button class="button primary">+ Nova jornada</button></div><div class="schedule-grid"><?php foreach([['Administrativo','Segunda a sexta','08:00–12:00 • 13:00–17:00','8h por dia'],['Portaria 12×36','Escala alternada','07:00–12:00 • 13:00–19:00','12h por plantão'],['Serviços gerais','Segunda a sábado','07:00–11:00 • 12:00–15:20','44h semanais']] as $s): ?><article class="panel schedule-card"><span class="stat-icon blue">◷</span><h2><?= $s[0] ?></h2><p><?= $s[1] ?></p><strong><?= $s[2] ?></strong><small><?= $s[3] ?></small><button class="button ghost">Editar jornada</button></article><?php endforeach; ?></div>
+  <?php elseif ($page==='companies'): ?>
+    <article class="panel detail-card"><p class="eyebrow">EMPRESA ATIVA</p><h2><?= e($company['name']) ?></h2><div class="details"><div><span>CNPJ</span><strong><?= e($company['document']) ?></strong></div><div><span>Fuso horário</span><strong><?= e($company['timezone']) ?></strong></div><div><span>Status do agente</span><strong class="positive">Conectado</strong></div><div><span>Última sincronização</span><strong>há 2 minutos</strong></div></div><button class="button primary">Editar empresa</button></article>
+  <?php elseif ($page==='audit'): $logs=db()->prepare('SELECT * FROM audit_logs WHERE company_id=? ORDER BY created_at DESC LIMIT 50');$logs->execute([$companyId]); ?>
+    <article class="panel table-panel"><div class="panel-head"><div><h2>Trilha de auditoria</h2><p>Ações registradas sem possibilidade de edição</p></div></div><div class="table-wrap"><table><thead><tr><th>Data</th><th>Ação</th><th>Entidade</th><th>Detalhes</th><th>IP</th></tr></thead><tbody><?php foreach($logs as $log): ?><tr><td><?= e(date('d/m/Y H:i',strtotime($log['created_at']))) ?></td><td><?= e($log['action']) ?></td><td><?= e($log['entity_type']) ?></td><td><?= e($log['details']) ?></td><td><?= e($log['ip_address']) ?></td></tr><?php endforeach; ?></tbody></table></div></article>
+  <?php elseif ($page==='settings'): ?>
+    <div class="settings-grid"><article class="panel"><h2>Regras de apuração</h2><label>Tolerância diária<select><option>10 minutos</option><option>5 minutos</option><option>Sem tolerância</option></select></label><label>Fechamento mensal<input value="Dia 25 de cada mês"></label><button class="button primary">Salvar regras</button></article><article class="panel"><h2>Agente comunicador</h2><p>Configure o agente instalado na rede do relógio para enviar marcações ao endpoint abaixo.</p><code>/api/agent/punches</code><span class="live"><i></i> Comunicação normal</span></article></div>
+  <?php else: ?><article class="panel empty-state"><h2>Página não encontrada</h2><a class="button primary" href="/dashboard">Voltar ao painel</a></article><?php endif; ?>
+  </section>
+</main></div><script src="/assets/app.js"></script></body></html>
+<?php
+function render_punch_table(array $rows): void { ?>
+<div class="table-wrap"><table><thead><tr><th>Colaborador</th><th>Data e hora</th><th>Setor</th><th>Origem</th><th>NSR</th><th>Status</th></tr></thead><tbody><?php foreach($rows as $row): ?><tr><td><strong><?= e($row['name']) ?></strong><small>Matrícula <?= e($row['registration']) ?></small></td><td><?= e(date('d/m/Y • H:i:s',strtotime($row['punched_at']))) ?></td><td><?= e($row['department']) ?></td><td><span class="source-icon">◎</span> <?= e(ucfirst($row['source'])) ?></td><td><?= e($row['nsr'] ?: '—') ?></td><td><span class="badge success">Recebida</span></td></tr><?php endforeach; ?></tbody></table></div><?php }
+?>
