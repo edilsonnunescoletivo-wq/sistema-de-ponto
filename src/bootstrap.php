@@ -2,6 +2,8 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/TimeCalculator.php';
+require_once __DIR__ . '/AfdImporter.php';
+require_once __DIR__ . '/PeriodProcessor.php';
 
 session_start([
     'cookie_httponly' => true,
@@ -66,7 +68,9 @@ function initialize_sqlite(PDO $pdo): void
     CREATE TABLE IF NOT EXISTS adjustments (id INTEGER PRIMARY KEY AUTOINCREMENT, company_id INTEGER NOT NULL, employee_id INTEGER NOT NULL, work_date TEXT NOT NULL, kind TEXT NOT NULL, status TEXT DEFAULT 'pending', adjusted_value TEXT, reason TEXT NOT NULL, created_by INTEGER NOT NULL, approved_by INTEGER, created_at TEXT DEFAULT CURRENT_TIMESTAMP, approved_at TEXT);
     CREATE TABLE IF NOT EXISTS company_settings (company_id INTEGER PRIMARY KEY, daily_tolerance_minutes INTEGER DEFAULT 10, overtime_weekday_percent REAL DEFAULT 50, overtime_holiday_percent REAL DEFAULT 100, night_additional_percent REAL DEFAULT 20, night_hour_minutes INTEGER DEFAULT 52, closing_day INTEGER DEFAULT 25, updated_at TEXT DEFAULT CURRENT_TIMESTAMP);
     CREATE TABLE IF NOT EXISTS devices (id INTEGER PRIMARY KEY AUTOINCREMENT, company_id INTEGER NOT NULL, name TEXT NOT NULL, manufacturer TEXT, model TEXT, serial_number TEXT, ip_address TEXT, status TEXT DEFAULT 'offline', last_sync_at TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP);
-    CREATE TABLE IF NOT EXISTS period_closures (id INTEGER PRIMARY KEY AUTOINCREMENT, company_id INTEGER NOT NULL, starts_on TEXT NOT NULL, ends_on TEXT NOT NULL, status TEXT DEFAULT 'open', closed_by INTEGER, closed_at TEXT, UNIQUE(company_id,starts_on,ends_on));"
+    CREATE TABLE IF NOT EXISTS period_closures (id INTEGER PRIMARY KEY AUTOINCREMENT, company_id INTEGER NOT NULL, starts_on TEXT NOT NULL, ends_on TEXT NOT NULL, status TEXT DEFAULT 'open', closed_by INTEGER, closed_at TEXT, UNIQUE(company_id,starts_on,ends_on));
+    CREATE TABLE IF NOT EXISTS import_batches (id INTEGER PRIMARY KEY AUTOINCREMENT, company_id INTEGER NOT NULL, file_name TEXT NOT NULL, file_hash TEXT NOT NULL, status TEXT DEFAULT 'processing', total_records INTEGER DEFAULT 0, imported_records INTEGER DEFAULT 0, rejected_records INTEGER DEFAULT 0, created_by INTEGER NOT NULL, created_at TEXT DEFAULT CURRENT_TIMESTAMP, completed_at TEXT);
+    CREATE TABLE IF NOT EXISTS daily_calculations (id INTEGER PRIMARY KEY AUTOINCREMENT, company_id INTEGER NOT NULL, employee_id INTEGER NOT NULL, work_date TEXT NOT NULL, worked_minutes INTEGER DEFAULT 0, expected_minutes INTEGER DEFAULT 0, overtime_minutes INTEGER DEFAULT 0, delay_minutes INTEGER DEFAULT 0, night_minutes INTEGER DEFAULT 0, issues TEXT, processed_at TEXT DEFAULT CURRENT_TIMESTAMP, UNIQUE(company_id,employee_id,work_date));"
     );
     if ((int)$pdo->query('SELECT COUNT(*) FROM companies')->fetchColumn() === 0) {
         $pdo->beginTransaction();
