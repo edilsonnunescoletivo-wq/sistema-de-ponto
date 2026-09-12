@@ -1,0 +1,58 @@
+<?php
+declare(strict_types=1);
+require dirname(__DIR__) . '/src/bootstrap.php';
+
+$path = trim(parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH) ?? '/', '/');
+$method = $_SERVER['REQUEST_METHOD'];
+
+if ($path === 'api/agent/punches' && $method === 'POST') {
+    header('Content-Type: application/json');
+    $token = $_SERVER['HTTP_X_AGENT_TOKEN'] ?? '';
+    if (!hash_equals(env('APP_KEY',''), $token)) { http_response_code(401); echo json_encode(['error'=>'Token inválido']); exit; }
+    $data = json_decode(file_get_contents('php://input'), true) ?: [];
+    $employee = db()->prepare('SELECT * FROM employees WHERE registration = ? LIMIT 1');
+    $employee->execute([$data['registration'] ?? '']);
+    $row = $employee->fetch();
+    if (!$row || empty($data['punched_at'])) { http_response_code(422); echo json_encode(['error'=>'Dados inválidos']); exit; }
+    $hash = hash('sha256', $row['company_id'].'|'.$row['id'].'|'.$data['punched_at'].'|'.($data['nsr'] ?? ''));
+    $sql = env('DB_DRIVER', 'sqlite') === 'mysql'
+        ? 'INSERT IGNORE INTO punches (company_id,employee_id,punched_at,source,nsr,original_hash) VALUES (?,?,?,?,?,?)'
+        : 'INSERT OR IGNORE INTO punches (company_id,employee_id,punched_at,source,nsr,original_hash) VALUES (?,?,?,?,?,?)';
+    $stmt = db()->prepare($sql);
+    $stmt->execute([$row['company_id'],$row['id'],$data['punched_at'],'agent',$data['nsr'] ?? null,$hash]);
+    echo json_encode(['ok'=>true,'id'=>db()->lastInsertId()]); exit;
+}
+
+if ($path === 'login') {
+    if ($method === 'POST') {
+        check_csrf();
+        $stmt = db()->prepare('SELECT * FROM users WHERE email = ? AND active = 1 LIMIT 1');
+        $stmt->execute([strtolower(trim($_POST['email'] ?? ''))]);
+        $account = $stmt->fetch();
+        if ($account && password_verify($_POST['password'] ?? '', $account['password_hash'])) {
+            session_regenerate_id(true);
+            unset($account['password_hash']);
+            $_SESSION['user'] = $account;
+            redirect('dashboard');
+        }
+        $error = 'E-mail ou senha incorretos.';
+    }
+    require dirname(__DIR__) . '/views/login.php'; exit;
+}
+
+if ($path === 'logout') { session_destroy(); redirect('login'); }
+require_auth();
+
+if ($path === 'employees/new' && $method === 'POST') {
+    check_csrf();
+    $stmt = db()->prepare('INSERT INTO employees (company_id,registration,name,cpf,department,job_title,schedule_name,status) VALUES (?,?,?,?,?,?,?,?)');
+    $stmt->execute([user()['company_id'],trim($_POST['registration']),trim($_POST['name']),trim($_POST['cpf']),trim($_POST['department']),trim($_POST['job_title']),trim($_POST['schedule_name']),'active']);
+    audit('create','employee',(string)db()->lastInsertId(),['name'=>$_POST['name']]);
+    $_SESSION['flash'] = 'Colaborador cadastrado com sucesso.';
+    redirect('employees');
+}
+
+$allowed = ['dashboard','employees','punches','treatment','reports','schedules','companies','audit','settings'];
+$page = $path === '' ? 'dashboard' : $path;
+if (!in_array($page, $allowed, true)) { http_response_code(404); $page = '404'; }
+require dirname(__DIR__) . '/views/app.php';
