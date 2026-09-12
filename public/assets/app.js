@@ -3,7 +3,12 @@ document.querySelectorAll('[data-modal]').forEach(button=>button.addEventListene
 document.querySelectorAll('.close-modal').forEach(button=>button.addEventListener('click',()=>button.closest('dialog')?.close()));
 document.querySelector('#employeeSearch')?.addEventListener('input',event=>{
   const term=event.target.value.toLocaleLowerCase('pt-BR');
-  document.querySelectorAll('#employeeRows tr').forEach(row=>row.hidden=!row.textContent.toLocaleLowerCase('pt-BR').includes(term));
+  document.querySelectorAll('#employeeRows tr').forEach(row=>row.hidden=!row.textContent.toLocaleLowerCase('pt-BR').includes(term)||(document.querySelector('#employeeStatus')?.value&&row.dataset.status!==document.querySelector('#employeeStatus').value));
+});
+document.querySelector('#employeeStatus')?.addEventListener('change',event=>{
+  const status=event.target.value;
+  const term=(document.querySelector('#employeeSearch')?.value||'').toLocaleLowerCase('pt-BR');
+  document.querySelectorAll('#employeeRows tr').forEach(row=>row.hidden=(status&&row.dataset.status!==status)||!row.textContent.toLocaleLowerCase('pt-BR').includes(term));
 });
 document.querySelectorAll('button').forEach(button=>{
   if(button.textContent.trim()==='Processar período') button.addEventListener('click',()=>document.querySelector('#processPeriodForm')?.requestSubmit());
