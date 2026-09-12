@@ -147,6 +147,20 @@ if ($path === 'users/new' && $method === 'POST') {
     check_csrf();require_role(['admin']);$stmt=db()->prepare('INSERT INTO users(company_id,name,email,password_hash,role) VALUES(?,?,?,?,?)');$stmt->execute([user()['company_id'],trim($_POST['name']),strtolower(trim($_POST['email'])),password_hash($_POST['password'],PASSWORD_DEFAULT),$_POST['role']]);audit('create','user',(string)db()->lastInsertId());$_SESSION['flash']='Usuário cadastrado.';redirect('users');
 }
 
+if ($path === 'timecard/accept' && $method === 'POST') {
+    check_csrf();$employee=(int)$_POST['employee_id'];$from=$_POST['from'];$to=$_POST['to'];$name=trim($_POST['accepted_name']);
+    $valid=db()->prepare('SELECT COUNT(*) FROM employees WHERE id=? AND company_id=?');$valid->execute([$employee,user()['company_id']]);if(!$valid->fetchColumn()||$name===''){http_response_code(422);exit('Dados inválidos.');}
+    $hash=hash('sha256',user()['company_id'].'|'.$employee.'|'.$from.'|'.$to.'|'.$name.'|'.microtime(true));
+    db()->prepare('INSERT INTO timecard_acceptances(company_id,employee_id,starts_on,ends_on,accepted_name,acceptance_hash,ip_address) VALUES(?,?,?,?,?,?,?)')->execute([user()['company_id'],$employee,$from,$to,$name,$hash,$_SERVER['REMOTE_ADDR']??null]);audit('accept','timecard',(string)$employee,['from'=>$from,'to'=>$to,'hash'=>$hash]);$_SESSION['flash']='Espelho aceito eletronicamente.';redirect('reports');
+}
+
+if ($path === 'timecard') {
+    $employeeId=(int)($_GET['employee_id']??0);$from=$_GET['from']??date('Y-m-01');$to=$_GET['to']??date('Y-m-d');
+    $q=db()->prepare('SELECT * FROM employees WHERE id=? AND company_id=?');$q->execute([$employeeId,user()['company_id']]);$timecardEmployee=$q->fetch();if(!$timecardEmployee){http_response_code(404);exit('Colaborador não encontrado.');}
+    $companyQuery=db()->prepare('SELECT * FROM companies WHERE id=?');$companyQuery->execute([user()['company_id']]);$company=$companyQuery->fetch();
+    $q=db()->prepare('SELECT * FROM daily_calculations WHERE employee_id=? AND work_date BETWEEN ? AND ? ORDER BY work_date');$q->execute([$employeeId,$from,$to]);$timecardDays=$q->fetchAll();require dirname(__DIR__).'/views/timecard.php';exit;
+}
+
 $allowed = ['dashboard','employees','punches','treatment','reports','schedules','companies','users','audit','settings'];
 $page = $path === '' ? 'dashboard' : $path;
 if (!in_array($page, $allowed, true)) { http_response_code(404); $page = '404'; }
